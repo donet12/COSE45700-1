@@ -1,0 +1,136 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Vector Database (ChromaDB)
+chroma_db/
+*.chroma
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# AWS
+.aws/
+credentials
+config
+*.pem
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Project specific
+interview_coach.db
+*.db-journal
+
+# Data files (크롤링된 데이터, 업로드된 파일 등)
+data/
+uploads/
+*.csv
+*.xlsx
+*.xls
+
+# Model files (큰 모델 파일들)
+*.bin
+*.pt
+*.pth
+*.h5
+*.ckpt
+
+# ChromeDriver
+chromedriver
+chromedriver.exe
+*.chromedriver
+
+# Selenium
+geckodriver
+geckodriver.exe
+*.geckodriver
+
+# Backup files
+*.backup
+*.old
+
