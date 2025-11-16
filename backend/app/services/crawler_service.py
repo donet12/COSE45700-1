@@ -18,6 +18,9 @@ class CrawlerService:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
+        # SSL 인증서 검증 경고 비활성화 (개발 환경용)
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     def crawl_url(self, url: str, max_length: int = 50000) -> str:
         """
@@ -40,6 +43,10 @@ class CrawlerService:
             if 'github.com' in parsed.netloc:
                 return self._crawl_github(url, max_length)
             
+            # 카카오 기술 블로그 URL 처리 (JavaScript 렌더링 필요)
+            if 'tech.kakao.com' in parsed.netloc:
+                return self._crawl_kakao_tech(url, max_length)
+            
             # 네이버 블로그 URL 처리 (Selenium 필요)
             if 'blog.naver.com' in parsed.netloc:
                 return self._crawl_naver_blog(url, max_length)
@@ -48,8 +55,8 @@ class CrawlerService:
             if 'tistory.com' in parsed.netloc:
                 return self._crawl_tistory(url, max_length)
             
-            # 일반 URL 크롤링
-            response = self.session.get(url, timeout=10)
+            # 일반 URL 크롤링 (SSL 인증서 검증 비활성화 - 개발 환경용)
+            response = self.session.get(url, timeout=10, verify=False)
             response.raise_for_status()
             
             # HTML 파싱
@@ -201,6 +208,9 @@ class CrawlerService:
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            chrome_options.add_argument('--ignore-certificate-errors')  # SSL 인증서 검증 비활성화
+            chrome_options.add_argument('--ignore-ssl-errors')  # SSL 오류 무시
+            chrome_options.add_experimental_option('acceptInsecureCerts', True)  # 안전하지 않은 인증서 허용
             
             # ChromeDriver 설정
             import os
@@ -325,6 +335,200 @@ class CrawlerService:
         except Exception as e:
             raise Exception(f"GitHub 크롤링 중 오류: {str(e)}")
     
+    def _crawl_kakao_tech(self, url: str, max_length: int = 50000) -> str:
+        """
+        카카오 기술 블로그 크롤링 (Selenium 사용)
+        
+        Args:
+            url: 카카오 기술 블로그 URL
+            max_length: 최대 텍스트 길이
+            
+        Returns:
+            크롤링된 텍스트 내용
+        """
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+            from selenium.webdriver.chrome.service import Service
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            from webdriver_manager.chrome import ChromeDriverManager
+        except ImportError:
+            raise Exception("카카오 기술 블로그 크롤링을 위해 Selenium이 필요합니다. pip install selenium webdriver-manager")
+        
+        try:
+            # Chrome 옵션 설정
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+            chrome_options.add_argument('--ignore-certificate-errors')  # SSL 인증서 검증 비활성화
+            chrome_options.add_argument('--ignore-ssl-errors')  # SSL 오류 무시
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_experimental_option('useAutomationExtension', False)
+            chrome_options.add_experimental_option('acceptInsecureCerts', True)  # 안전하지 않은 인증서 허용
+            
+            # ChromeDriver 설정
+            import os
+            import subprocess
+            
+            driver_path = None
+            
+            # 방법 1: 시스템에 설치된 chromedriver 찾기
+            try:
+                result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    driver_path = result.stdout.strip()
+            except:
+                pass
+            
+            # 방법 2: ChromeDriverManager 사용
+            if not driver_path:
+                try:
+                    manager_path = ChromeDriverManager().install()
+                    driver_dir = os.path.dirname(manager_path)
+                    
+                    # chromedriver 실행 파일 찾기
+                    for root, dirs, files in os.walk(driver_dir):
+                        for file in files:
+                            if file == 'chromedriver' or (file.startswith('chromedriver') and not any(file.endswith(ext) for ext in ['.txt', '.md', '.zip', '.tar.gz'])):
+                                candidate_path = os.path.join(root, file)
+                                if os.path.isfile(candidate_path) and os.access(candidate_path, os.X_OK):
+                                    try:
+                                        result = subprocess.run(['file', candidate_path], capture_output=True, text=True)
+                                        if 'executable' in result.stdout.lower() or 'binary' in result.stdout.lower():
+                                            driver_path = candidate_path
+                                            break
+                                    except:
+                                        driver_path = candidate_path
+                                        break
+                        if driver_path:
+                            break
+                except Exception as e:
+                    pass
+            
+            # ChromeDriver 초기화
+            if driver_path and os.path.exists(driver_path):
+                try:
+                    service = Service(driver_path)
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                except Exception:
+                    driver = webdriver.Chrome(options=chrome_options)
+            else:
+                try:
+                    driver = webdriver.Chrome(options=chrome_options)
+                except Exception as e:
+                    raise Exception(
+                        f"ChromeDriver를 찾을 수 없습니다.\n"
+                        f"다음 명령어로 설치하세요:\n"
+                        f"Mac: brew install chromedriver\n"
+                        f"또는 ChromeDriver 캐시를 삭제하세요: rm -rf ~/.wdm/drivers/chromedriver"
+                    )
+            
+            try:
+                # 페이지 로드
+                driver.get(url)
+                
+                # 페이지가 완전히 로드될 때까지 대기
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                
+                # 추가 대기 (JavaScript 실행 완료)
+                time.sleep(3)
+                
+                # 스크롤 다운 (동적 콘텐츠 로딩을 위해)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)
+                
+                # 페이지 소스 가져오기
+                page_source = driver.page_source
+                
+                # BeautifulSoup으로 파싱
+                soup = BeautifulSoup(page_source, 'html.parser')
+                
+                # 불필요한 태그 제거
+                unwanted_tags = [
+                    'script', 'style', 'nav', 'footer', 'header', 'aside',
+                    'noscript', 'iframe', 'embed', 'object', 'form',
+                    'button', 'input', 'select', 'textarea', 'label',
+                    'meta', 'link', 'svg', 'path'
+                ]
+                for tag in soup(unwanted_tags):
+                    tag.decompose()
+                
+                # 카카오 기술 블로그 특정 요소 제거
+                for tag in soup.find_all(class_=lambda x: x and any(keyword in str(x).lower() for keyword in [
+                    'header', 'footer', 'sidebar', 'navigation', 'menu', 'nav',
+                    'comment', 'reply', 'ad', 'banner', 'widget', 'aside',
+                    'site-header', 'site-footer', 'site-nav', 'site-menu'
+                ])):
+                    tag.decompose()
+                
+                # 카카오 기술 블로그 본문 영역 찾기
+                main_content = None
+                selectors = [
+                    'article',  # HTML5 article 태그
+                    'main',  # HTML5 main 태그
+                    '[role="main"]',  # role="main"
+                    '.post-content',  # post-content 클래스
+                    '.article-content',  # article-content 클래스
+                    '.content',  # content 클래스
+                    '#content',  # content ID
+                    '.post-body',  # post-body 클래스
+                    '.entry-content'  # entry-content 클래스
+                ]
+                
+                for selector in selectors:
+                    main_content = soup.select_one(selector)
+                    if main_content:
+                        break
+                
+                # 메인 콘텐츠가 있으면 그것만 사용
+                if main_content:
+                    text = main_content.get_text(separator='\n', strip=True)
+                else:
+                    # 메인 콘텐츠를 찾지 못한 경우, body에서 불필요한 요소 제거 후 추출
+                    for tag in soup.find_all(['div', 'section'], class_=lambda x: x and any(keyword in str(x).lower() for keyword in [
+                        'header', 'footer', 'nav', 'menu', 'sidebar', 'comment', 'ad'
+                    ])):
+                        tag.decompose()
+                    text = soup.get_text(separator='\n', strip=True)
+                
+                # 텍스트 정리
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                # 너무 짧은 줄 제거 (1-2자만 있는 줄)
+                lines = [line for line in lines if len(line) > 2]
+                # 중복된 빈 줄 제거
+                cleaned_lines = []
+                prev_empty = False
+                for line in lines:
+                    if line:
+                        cleaned_lines.append(line)
+                        prev_empty = False
+                    elif not prev_empty:
+                        cleaned_lines.append('')
+                        prev_empty = True
+                
+                cleaned_text = '\n'.join(cleaned_lines)
+                
+                # 길이 제한
+                if len(cleaned_text) > max_length:
+                    cleaned_text = cleaned_text[:max_length] + "... (내용이 너무 길어 일부만 추출했습니다)"
+                
+                return cleaned_text
+                
+            finally:
+                driver.quit()
+        
+        except Exception as e:
+            raise Exception(f"카카오 기술 블로그 크롤링 중 오류: {str(e)}")
+    
     def _crawl_naver_blog(self, url: str, max_length: int = 50000) -> str:
         """
         네이버 블로그 크롤링 (Selenium 사용)
@@ -357,8 +561,11 @@ class CrawlerService:
             chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
             chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+            chrome_options.add_argument('--ignore-certificate-errors')  # SSL 인증서 검증 비활성화
+            chrome_options.add_argument('--ignore-ssl-errors')  # SSL 오류 무시
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
+            chrome_options.add_experimental_option('acceptInsecureCerts', True)  # 안전하지 않은 인증서 허용
             
             # ChromeDriver 설정 (GitHub와 동일한 로직)
             import os
@@ -551,8 +758,11 @@ class CrawlerService:
             chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
             chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+            chrome_options.add_argument('--ignore-certificate-errors')  # SSL 인증서 검증 비활성화
+            chrome_options.add_argument('--ignore-ssl-errors')  # SSL 오류 무시
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
+            chrome_options.add_experimental_option('acceptInsecureCerts', True)  # 안전하지 않은 인증서 허용
             
             # ChromeDriver 설정 (네이버 블로그와 동일한 로직)
             import os

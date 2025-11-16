@@ -788,19 +788,99 @@ elif page == "❓ 질문 생성":
                 loop_rate.run_until_complete(rate_limiter.wait_if_needed(key="bedrock_stream"))
                 loop_rate.close()
                 
+                # 회사명 추출 (회사 특화 문서 검색용)
+                import re
+                company_keywords = ["카카오", "네이버", "라인", "토스", "당근", "쿠팡", "배달의민족", "우아한형제들", 
+                                   "삼성", "LG", "SK", "현대", "기아", "한화", "롯데", "CJ", "GS",
+                                   "당근마켓", "무신사", "야놀자", "직방", "왓챠", "브랜디", "마켓컬리",
+                                   "Apple", "Google", "Microsoft", "Amazon", "Meta", "Netflix", "Tesla",
+                                   "애플", "구글", "마이크로소프트", "아마존", "메타", "넷플릭스", "테슬라"]
+                
+                extracted_companies = []
+                user_prompt_lower = user_prompt.lower()
+                for keyword in company_keywords:
+                    if keyword.lower() in user_prompt_lower or keyword in user_prompt:
+                        extracted_companies.append(keyword)
+                
+                # 검색 쿼리 개선: 회사명이 있으면 검색 쿼리에 포함
+                search_query = user_prompt
+                if extracted_companies:
+                    # 회사명을 명시적으로 검색 쿼리에 추가
+                    company_query = " ".join(extracted_companies)
+                    search_query = f"{user_prompt} {company_query}"
+                
                 # RAG를 사용하여 관련 문서 검색
                 relevant_docs = []
                 rag_status = "❌ RAG 미사용 (일반 LLM 모드)"
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
+                    # 검색 범위를 넓게 설정 (회사 특화 문서를 더 찾기 위해)
                     relevant_docs = loop.run_until_complete(
-                        rag_service.search_documents(user_prompt, k=10)  # 검색 범위 확대: 2개 → 10개
+                        rag_service.search_documents(search_query, k=15)  # 검색 범위 확대: 10개 → 15개
                     )
                     loop.close()
                     
+                    # 중복 제거: 같은 문서의 여러 청크 중 가장 긴 것만 유지
+                    # url 또는 doc_id를 기준으로 중복 제거 (url 우선, 같은 URL = 같은 문서)
+                    seen_documents = {}  # key: identifier, value: doc
+                    
+                    for doc in relevant_docs:
+                        # 문서 식별자 생성 (url 우선, 없으면 doc_id, 없으면 source 사용)
+                        doc_url = doc.metadata.get('url', '')
+                        doc_id = doc.metadata.get('doc_id', '')
+                        doc_source = doc.metadata.get('source', '')
+                        
+                        # URL이 있으면 URL을 식별자로, 없으면 doc_id, 없으면 source 사용
+                        doc_identifier = doc_url if doc_url else (doc_id if doc_id else doc_source)
+                        
+                        if doc_identifier:
+                            # 같은 문서를 아직 보지 않았으면 추가
+                            if doc_identifier not in seen_documents:
+                                seen_documents[doc_identifier] = doc
+                            else:
+                                # 이미 있는 문서의 청크보다 더 긴 청크면 교체 (더 많은 정보 포함)
+                                existing_doc = seen_documents[doc_identifier]
+                                if len(doc.page_content) > len(existing_doc.page_content):
+                                    seen_documents[doc_identifier] = doc
+                        else:
+                            # 식별자가 없으면 그대로 추가 (중복 가능하지만 일단 포함)
+                            # 고유 키 생성 (내용의 일부 사용)
+                            unique_key = doc.page_content[:50] if doc.page_content else str(len(seen_documents))
+                            if unique_key not in seen_documents:
+                                seen_documents[unique_key] = doc
+                    
+                    # 중복 제거된 문서 리스트 생성
+                    relevant_docs = list(seen_documents.values())
+                    
+                    # 회사명이 추출된 경우, 회사 관련 문서를 우선순위로 필터링
+                    if extracted_companies and relevant_docs:
+                        company_docs = []
+                        other_docs = []
+                        for doc in relevant_docs:
+                            doc_content = doc.page_content.lower()
+                            doc_url = doc.metadata.get('url', '').lower()
+                            doc_source = str(doc.metadata.get('source', '')).lower()
+                            
+                            # 회사명이 문서 내용이나 메타데이터에 포함되어 있는지 확인
+                            is_company_doc = any(
+                                company.lower() in doc_content or 
+                                company.lower() in doc_url or 
+                                company.lower() in doc_source
+                                for company in extracted_companies
+                            )
+                            
+                            if is_company_doc:
+                                company_docs.append(doc)
+                            else:
+                                other_docs.append(doc)
+                        
+                        # 회사 관련 문서를 먼저, 그 다음 일반 문서 (각각 중복 제거된 상태)
+                        relevant_docs = company_docs[:10] + other_docs[:5]
+                    
                     if relevant_docs:
-                        rag_status = f"✅ RAG 사용 중 (관련 문서 {len(relevant_docs)}개 발견)"
+                        company_info = f" (회사: {', '.join(extracted_companies)})" if extracted_companies else ""
+                        rag_status = f"✅ RAG 사용 중 (관련 문서 {len(relevant_docs)}개 발견{company_info})"
                     else:
                         rag_status = "⚠️ RAG 검색됐지만 관련 문서 없음 (일반 LLM 모드)"
                 except Exception as rag_error:
@@ -835,6 +915,13 @@ elif page == "❓ 질문 생성":
 - 사용자가 "그것", "이것", "그건" 등으로 참조할 때는 이전 대화에서 언급된 내용을 의미합니다
 - 대화 히스토리를 꼼꼼히 확인하여 사용자의 의도를 정확히 파악하세요
 
+**참고 자료 활용 (가장 중요)**
+- 참고 자료가 제공된 경우, 반드시 참고 자료의 내용을 우선적으로 사용하세요
+- 참고 자료에 포함된 구체적인 정보, 용어, 기술 스택, 회사 특성 등을 정확히 반영하여 질문을 생성하세요
+- 참고 자료의 내용이 일반적인 지식과 다를 경우, 참고 자료의 내용을 기준으로 질문하세요
+- 참고 자료에 특정 회사명, 서비스명, 기술명이 나오면 그것을 반드시 포함하여 질문하세요
+- 참고 자료의 세부 내용(예: 특정 알고리즘, 아키텍처, 경험 사례)을 그대로 반영하세요
+
 다음 정보를 참고하여 답변하세요:
 - 회사명, 직무, 기술 스택이 언급되면 그것을 반영한 질문 생성
 - 질문 개수가 명시되지 않으면 5개 정도 생성
@@ -846,7 +933,7 @@ elif page == "❓ 질문 생성":
 - 참고 자료, RAG 검색, 벡터 검색, 문서 검색 등 기술적 정보를 답변에 포함하지 마세요
 - 검색된 문서의 출처나 URL을 답변에 표시하지 마세요
 - "참고 자료를 기반으로", "검색 결과", "벡터 RAG", "VECTOR 검색" 등의 표현을 사용하지 마세요
-- 단순히 참고 자료의 내용만 자연스럽게 반영하여 질문을 생성하세요
+- 참고 자료의 내용을 자연스럽게 활용하되, 기술적 용어는 언급하지 마세요
 
 답변은 친근하고 도움이 되는 톤으로 작성해주세요."""
                 
