@@ -312,18 +312,29 @@ elif page == "💬 간단한 채팅":
                                 
             except Exception as e:
                 error_str = str(e)
+                developer_mode_debug = st.session_state.get('developer_mode', False)
                 
                 if "ThrottlingException" in error_str or "Too many requests" in error_str or "throttl" in error_str.lower():
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
-                        yield f"\n\n⏳ {delay}초 대기 후 재시도합니다...\n\n"
+                        # 개발자 모드일 때만 재시도 메시지 표시
+                        if developer_mode_debug:
+                            yield f"\n\n⏳ {delay}초 대기 후 재시도합니다...\n\n"
                         time.sleep(delay)
                         continue
                     else:
-                        yield f"\n\n❌ 서버 과부하. 5분 후 다시 시도해주세요.\n\n"
+                        # 개발자 모드일 때만 오류 메시지 표시
+                        if developer_mode_debug:
+                            yield f"\n\n❌ 서버 과부하. 5분 후 다시 시도해주세요.\n\n"
+                        else:
+                            yield f"\n\n⏳ 응답을 생성하는 중입니다. 잠시만 기다려주세요...\n\n"
                         return
                 else:
-                    yield f"\n\n❌ 오류: {str(e)}\n\n"
+                    # 개발자 모드일 때만 상세 오류 표시
+                    if developer_mode_debug:
+                        yield f"\n\n❌ 오류: {str(e)}\n\n"
+                    else:
+                        yield f"\n\n⏳ 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.\n\n"
                     return
     
     # 사용자 입력
@@ -1034,21 +1045,33 @@ elif page == "❓ 질문 생성":
                                 
             except Exception as e:
                 error_str = str(e)
+                developer_mode_debug = st.session_state.get('developer_mode', False)
                 
                 # ThrottlingException인 경우 재시도
                 if "ThrottlingException" in error_str or "Too many requests" in error_str or "throttl" in error_str.lower():
                     if attempt < max_retries - 1:
                         # 지수 백오프: 5초, 10초, 20초, 40초, 80초
                         delay = base_delay * (2 ** attempt)
-                        yield f"\n\n⏳ 요청이 많아 {delay}초 대기 후 재시도합니다... (시도 {attempt + 1}/{max_retries})\n\n"
+                        # 개발자 모드일 때만 재시도 메시지 표시
+                        if developer_mode_debug:
+                            yield f"\n\n⏳ 요청이 많아 {delay}초 대기 후 재시도합니다... (시도 {attempt + 1}/{max_retries})\n\n"
+                        # 일반 사용자 모드에서는 조용히 재시도 (메시지 없음)
                         time.sleep(delay)
                         continue
                     else:
-                        yield f"\n\n❌ 오류: 서버가 과부하 상태입니다. 5분 정도 기다린 후 다시 시도해주세요.\n\n"
+                        # 개발자 모드일 때만 상세 오류 표시
+                        if developer_mode_debug:
+                            yield f"\n\n❌ 오류: 서버가 과부하 상태입니다. 5분 정도 기다린 후 다시 시도해주세요.\n\n"
+                        else:
+                            yield f"\n\n⏳ 응답을 생성하는 중입니다. 잠시만 기다려주세요...\n\n"
                         return
                 else:
                     # 다른 오류는 즉시 반환
-                    yield f"\n\n❌ 오류 발생: {str(e)}\n\n"
+                    # 개발자 모드일 때만 상세 오류 표시
+                    if developer_mode_debug:
+                        yield f"\n\n❌ 오류 발생: {str(e)}\n\n"
+                    else:
+                        yield f"\n\n⏳ 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.\n\n"
                     return
     
     # 사용자 입력
